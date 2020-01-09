@@ -16,6 +16,9 @@ def to_var(x):
 		x = x.cuda()
 	return Variable(x)
 
+def logits(y):
+
+	return -(torch.log((1-y).div_(y)))
 
 class ReplayBuffer(object):
 	def __init__(self, state_dim, action_dim, max_size=int(1e6)):
@@ -59,13 +62,14 @@ class GenerativeReplay(nn.Module):
 
 		self.action_shape = action_shape
 		self.state_shape = state_shape
-		self.feature_size = self.action_shape[0] + (2 * self.state_shape[0]) + 2
+		self.feature_size = self.action_shape + (2 * self.state_shape) + 2
 		self.action_low = action_low
 		self.action_high = action_high
 		self.state_low = state_low
 		self.state_high = state_high
 		self.reward_low = -20.0
 		self.reward_high = 0.0
+		self.z_dim = z_dim
 		self.encoder = nn.Sequential(
 			nn.Linear(self.feature_size, h_dim),
 			nn.LeakyReLU(0.2),
@@ -76,39 +80,37 @@ class GenerativeReplay(nn.Module):
 			nn.Linear(z_dim, h_dim),
 			nn.ReLU(),
 			nn.Linear(h_dim, self.feature_size),
-			nn.Tanh()
+			nn.Sigmoid()
 		)
 
 		self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 	def normalise(self, x):
-		(((x[:,0].sub_(self.state_low[0])).div_((self.state_high[0] - self.state_low[0]))).mul_(2.0)).sub_(1.0).cuda()
-		(((x[:, 1].sub_(self.state_low[1])).div_((self.state_high[1] - self.state_low[1]))).mul_(2.0)).sub_(1.0).cuda()
-		(((x[:, 2].sub_(self.state_low[2])).div_((self.state_high[2] - self.state_low[2]))).mul_(2.0)).sub_(1.0).cuda()
-		(((x[:, 3].sub_(self.action_low)).div_((self.action_high - self.action_low))).mul_(2.0)).sub_(1.0).cuda()
-		(((x[:, 4].sub_(self.state_low[0])).div_((self.state_high[0] - self.state_low[0]))).mul_(2.0)).sub_(1.0).cuda()
-		(((x[:, 5].sub_(self.state_low[1])).div_((self.state_high[1] - self.state_low[1]))).mul_(2.0)).sub_(1.0).cuda()
-		(((x[:, 6].sub_(self.state_low[2])).div_((self.state_high[2] - self.state_low[2]))).mul_(2.0)).sub_(1.0).cuda()
-		(((x[:, 7].sub_(self.reward_low)).div_((self.reward_high - self.reward_high))).mul_(2.0)).sub_(1.0).cuda()
-		(((x[:, 8].sub_(0.0)).div_(1.0)).mul_(2.0)).sub_(1.0).cuda()
+		(x[:,0].sub_(self.state_low[0])).div_(self.state_high[0] - self.state_low[0]).cuda()
+		(x[:, 1].sub_(self.state_low[1])).div_(self.state_high[1] - self.state_low[1]).cuda()
+		(x[:, 2].sub_(self.state_low[2])).div_(self.state_high[2] - self.state_low[2]).cuda()
+		(x[:, 3].sub_(self.action_low)).div_(self.action_high - self.action_low).cuda()
+		(x[:, 4].sub_(self.state_low[0])).div_(self.state_high[0] - self.state_low[0]).cuda()
+		(x[:, 5].sub_(self.state_low[1])).div_(self.state_high[1] - self.state_low[1]).cuda()
+		(x[:, 6].sub_(self.state_low[2])).div_(self.state_high[2] - self.state_low[2]).cuda()
+		(x[:, 7].sub_(self.reward_low)).div_(self.reward_high - self.reward_low).cuda()
 		return x
 
 	def descale(self, x):
-		(((x[:, 0].add_(1.0)).div_(2.0)).mul_(self.state_high[0] - self.state_low[0])).add_(self.state_low[0]).cuda()
-		(((x[:, 1].add_(1.0)).div_(2.0)).mul_(self.state_high[1] - self.state_low[1])).add_(self.state_low[1]).cuda()
-		(((x[:, 2].add_(1.0)).div_(2.0)).mul_(self.state_high[2] - self.state_low[2])).add_(self.state_low[2]).cuda()
-		(((x[:, 3].add_(1.0)).div_(2.0)).mul_(self.action_high - self.action_low)).add_(self.action_low).cuda()
-		(((x[:, 4].add_(1.0)).div_(2.0)).mul_(self.state_high[0] - self.state_low[0])).add_(self.state_low[0]).cuda()
-		(((x[:, 5].add_(1.0)).div_(2.0)).mul_(self.state_high[1] - self.state_low[1])).add_(self.state_low[1]).cuda()
-		(((x[:, 6].add_(1.0)).div_(2.0)).mul_(self.state_high[2] - self.state_low[2])).add_(self.state_low[2]).cuda()
-		(((x[:, 7].add_(1.0)).div_(2.0)).mul_(self.reward_high - self.reward_low)).add_(self.reward_low).cuda()
-		(x[:, 8].add_(1.0)).div_(2.0).cuda()
+		(x[:, 0].mul_(self.state_high[0] - self.state_low[0])).add_(self.state_low[0]).cuda()
+		(x[:, 1].mul_(self.state_high[1] - self.state_low[1])).add_(self.state_low[1]).cuda()
+		(x[:, 2].mul_(self.state_high[2] - self.state_low[2])).add_(self.state_low[2]).cuda()
+		(x[:, 3].mul_(self.action_high - self.action_low)).add_(self.action_low).cuda()
+		(x[:, 4].mul_(self.state_high[0] - self.state_low[0])).add_(self.state_low[0]).cuda()
+		(x[:, 5].mul_(self.state_high[1] - self.state_low[1])).add_(self.state_low[1]).cuda()
+		(x[:, 6].mul_(self.state_high[2] - self.state_low[2])).add_(self.state_low[2]).cuda()
+		(x[:, 7].mul_(self.reward_high - self.reward_low)).add_(self.reward_low).cuda()
 
 		return x
 
 	def reparameterize(self, mu, logvar):
 		std = logvar.mul(0.5).exp_()
-		esp = to_var(torch.randn(*mu.size()))
+		esp = torch.randn(*mu.size())
 		z = mu + std * esp
 		return z
 
@@ -144,16 +146,16 @@ class GenerativeReplay(nn.Module):
 
 	def sample(self, batch_size):
 
-		sample = Variable(torch.randn(batch_size, 9))
-		recon_x = self.decoder(sample)
+		sample = Variable(torch.randn(batch_size, self.z_dim))
+		recon_x = logits(self.decoder(sample))
 		result = self.descale(recon_x)
 
 		## descale
 
 		return (
-			torch.FloatTensor(result[:3]).to(self.device),
-			torch.FloatTensor(result[3]).to(self.device),
-			torch.FloatTensor(result[4:7]).to(self.device),
-			torch.FloatTensor(result[-2]).to(self.device),
-			torch.FloatTensor(result[-1]).to(self.device)
+			torch.FloatTensor(result[:,3]).to(self.device),
+			torch.FloatTensor(result[:,3]).to(self.device),
+			torch.FloatTensor(result[:,4:7]).to(self.device),
+			torch.FloatTensor(result[:,-2]).to(self.device),
+			torch.FloatTensor(result[:,-1]).to(self.device)
 		)

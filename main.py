@@ -33,12 +33,22 @@ def eval_policy(policy, env_name, seed, eval_episodes=10):
 	return avg_reward
 
 
+def nan_to_num(t, mynan=0.):
+	if torch.all(torch.isfinite(t)):
+		return t
+	if len(t.size()) == 0:
+		return torch.tensor(mynan)
+	return torch.cat([nan_to_num(l).unsqueeze(0) for l in t], 0)
+
+
 def loss_fn(recon_x, x, mu, logvar):
-	BCE = F.binary_cross_entropy(recon_x, x, size_average=False)
+
+	BCE = F.binary_cross_entropy_with_logits(recon_x, x, size_average=False)
 	# see Appendix B from VAE paper:
 	# Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
 	# 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
 	KLD = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp())
+
 	return BCE + KLD
 
 
@@ -60,7 +70,7 @@ if __name__ == "__main__":
 	parser.add_argument("--policy_freq", default=2, type=int)       # Frequency of delayed policy updates
 	parser.add_argument("--save_model", action="store_true")        # Save model and optimizer parameters
 	parser.add_argument("--load_model", default="")                 # Model load file name, "" doesn't load, "default" uses file_name
-	parser.add_argument("--vae_batch_size", type=int, default=100)
+	parser.add_argument("--vae_batch_size", type=int, default=256)
 	args = parser.parse_args()
 
 	file_name = f"{args.policy}_{args.env}_{args.seed}"
@@ -112,7 +122,7 @@ if __name__ == "__main__":
 		policy_file = file_name if args.load_model == "default" else args.load_model
 		policy.load(f"./models/{policy_file}")
 
-	replay_buffer = utils.ReplayBuffer(state_dim, action_dim)  ## INITIALIZE
+	#replay_buffer = utils.ReplayBuffer(state_dim, action_dim)  ## INITIALIZE
 	generative_replay = utils.GenerativeReplay(action_dim, state_dim, action_low, action_high, state_low, state_high)
 	
 	# Evaluate untrained policy
@@ -146,19 +156,16 @@ if __name__ == "__main__":
 
 		if gr_index >= args.vae_batch_size:
 			gr_index = 0
-
 			train_batch = generative_replay.normalise(train_batch)
-
 			## train vae
-
-			recon_exp, mu, logvar = generative_replay(train_batch)
-			loss = loss_fn(recon_exp, train_batch, mu, logvar)
+			recon_exp, mu, logvar = generative_replay(train_batch.float())
+			loss = loss_fn(recon_exp, train_batch.float(), mu, logvar)
 			optimizer.zero_grad()
 			loss.backward()
 			optimizer.step()
-			print("Epoch[{}] Loss: {:.3f}".format(gr_train_count + 1, loss.data[0] / args.vae_batch_size))
+			print("Epoch[{}] Loss: {:.3f}".format(gr_train_count + 1, loss.item() / args.vae_batch_size))
 
-		train_batch[gr_index] = torch.cat((state, action, next_state, reward, done_bool), 0)
+		train_batch[gr_index] = torch.Tensor(np.concatenate((state, action, next_state, np.array([reward]), np.array([done_bool])), 0))
 		gr_index = gr_index + 1
 
 		# Store data in replay buffer
