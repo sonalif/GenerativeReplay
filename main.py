@@ -1,3 +1,4 @@
+import torch.nn.functional as F
 import numpy as np
 import torch
 import gym
@@ -18,7 +19,7 @@ def eval_policy(policy, env_name, seed, eval_episodes=10):
 
 	avg_reward = 0.
 	for _ in range(eval_episodes):
-		state, done = eval_env.reset(), False
+		state, done = eval_env.reset(), False  # ??
 		while not done:
 			action = policy.select_action(np.array(state))
 			state, reward, done, _ = eval_env.step(action)
@@ -30,6 +31,15 @@ def eval_policy(policy, env_name, seed, eval_episodes=10):
 	print(f"Evaluation over {eval_episodes} episodes: {avg_reward:.3f}")
 	print("---------------------------------------")
 	return avg_reward
+
+
+def loss_fn(recon_x, x, mu, logvar):
+	BCE = F.binary_cross_entropy(recon_x, x, size_average=False)
+	# see Appendix B from VAE paper:
+	# Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
+	# 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+	KLD = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp())
+	return BCE + KLD
 
 
 if __name__ == "__main__":
@@ -50,6 +60,7 @@ if __name__ == "__main__":
 	parser.add_argument("--policy_freq", default=2, type=int)       # Frequency of delayed policy updates
 	parser.add_argument("--save_model", action="store_true")        # Save model and optimizer parameters
 	parser.add_argument("--load_model", default="")                 # Model load file name, "" doesn't load, "default" uses file_name
+	parser.add_argument("--vae_batch_size", type=int, default=100)
 	args = parser.parse_args()
 
 	file_name = f"{args.policy}_{args.env}_{args.seed}"
@@ -72,8 +83,11 @@ if __name__ == "__main__":
 	
 	state_dim = env.observation_space.shape[0]
 	action_dim = env.action_space.shape[0] 
-	max_action = float(env.action_space.high[0])
-
+	action_low = env.action_space.low[0]
+	action_high = env.action_space.high[0]
+	state_low = env.observation_space.low
+	state_high = env.observation_space.high
+	max_action = float(action_high)
 	kwargs = {
 		"state_dim": state_dim,
 		"action_dim": action_dim,
@@ -98,15 +112,20 @@ if __name__ == "__main__":
 		policy_file = file_name if args.load_model == "default" else args.load_model
 		policy.load(f"./models/{policy_file}")
 
-	replay_buffer = utils.ReplayBuffer(state_dim, action_dim)
+	replay_buffer = utils.ReplayBuffer(state_dim, action_dim)  ## INITIALIZE
+	generative_replay = utils.GenerativeReplay(action_dim, state_dim, action_low, action_high, state_low, state_high)
 	
 	# Evaluate untrained policy
-	evaluations = [eval_policy(policy, args.env, args.seed)]
+	evaluations = [eval_policy(policy, args.env, args.seed)]  # Used for evaluating abg reward after a certain time step
 
 	state, done = env.reset(), False
+	gr_train_count = 0
 	episode_reward = 0
 	episode_timesteps = 0
 	episode_num = 0
+	train_batch = torch.zeros([args.vae_batch_size, 9], dtype=torch.float64)
+	gr_index = 0
+	optimizer = torch.optim.Adam(generative_replay.parameters(), lr=1e-3)
 
 	for t in range(int(args.max_timesteps)):
 		
@@ -125,15 +144,34 @@ if __name__ == "__main__":
 		next_state, reward, done, _ = env.step(action) 
 		done_bool = float(done) if episode_timesteps < env._max_episode_steps else 0
 
+		if gr_index >= args.vae_batch_size:
+			gr_index = 0
+
+			train_batch = generative_replay.normalise(train_batch)
+
+			## train vae
+
+			recon_exp, mu, logvar = generative_replay(train_batch)
+			loss = loss_fn(recon_exp, train_batch, mu, logvar)
+			optimizer.zero_grad()
+			loss.backward()
+			optimizer.step()
+			print("Epoch[{}] Loss: {:.3f}".format(gr_train_count + 1, loss.data[0] / args.vae_batch_size))
+
+		train_batch[gr_index] = torch.cat((state, action, next_state, reward, done_bool), 0)
+		gr_index = gr_index + 1
+
 		# Store data in replay buffer
-		replay_buffer.add(state, action, next_state, reward, done_bool)
+		#replay_buffer.add(state, action, next_state, reward, done_bool)  ## train??
+
+		## LOSS FUNCTION AND GRAD??
 
 		state = next_state
 		episode_reward += reward
 
 		# Train agent after collecting sufficient data
 		if t >= args.start_timesteps:
-			policy.train(replay_buffer, args.batch_size)
+			policy.train(generative_replay, args.batch_size)
 
 		if done: 
 			# +1 to account for 0 indexing. +0 on ep_timesteps since it will increment +1 even if done=True

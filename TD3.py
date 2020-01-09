@@ -95,17 +95,16 @@ class TD3(object):
 
 		self.total_it = 0
 
-
 	def select_action(self, state):
 		state = torch.FloatTensor(state.reshape(1, -1)).to(device)
 		return self.actor(state).cpu().data.numpy().flatten()
 
-
-	def train(self, replay_buffer, batch_size=100):
+	def train(self, replay, batch_size=100):
 		self.total_it += 1
 
 		# Sample replay buffer 
-		state, action, next_state, reward, not_done = replay_buffer.sample(batch_size) #generate from genReplay somehow
+		#state, action, next_state, reward, not_done = replay.sample(batch_size) #generate from genReplay somehow
+		state, action, next_state, reward, not_done = replay.sample(batch_size)  # generate from genReplay somehow
 		## check for Welch T test
 
 		with torch.no_grad():

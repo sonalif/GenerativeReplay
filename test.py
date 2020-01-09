@@ -1,11 +1,13 @@
 from gym import envs
 import gym
-env = gym.make('Assault-v0')
-print(env.action_space)
+
+env = gym.make('Pendulum-v0')
+print(env.metadata)
+print(env.action_space.low)
 print(env.observation_space.high.shape)
 print(env.observation_space.low)
 print(type(env.observation_space))
-input()
+
 for i_episode in range(20):
     observation = env.reset()
     print(len(observation))
@@ -14,7 +16,7 @@ for i_episode in range(20):
         print(observation)
         action = env.action_space.sample()
         #print(action)
-        observation, reward, done, info = env.step(action)
+        observation, reward, done, info = env.step([-4])
         #print(reward)
         #print(observation)
         #print(info)
@@ -23,3 +25,4 @@ for i_episode in range(20):
             print("Episode finished after {} timesteps".format(t+1))
             break
 env.close()
+
