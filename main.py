@@ -156,7 +156,7 @@ if __name__ == "__main__":
 			optimizer.zero_grad()
 			loss.backward()
 			optimizer.step()
-			print("Epoch[{}] Loss: {:.3f}".format(gr_train_count + 1, loss.data[0] / args.vae_batch_size))
+			print("Epoch[{}] Loss: {:.3f}".format(gr_train_count + 1, loss.item() / args.vae_batch_size))
 
 		train_batch[gr_index] = torch.Tensor(np.concatenate((state, action, next_state, np.array([reward]), np.array([done_bool])), 0))
 		gr_index = gr_index + 1

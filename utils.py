@@ -59,7 +59,7 @@ class GenerativeReplay(nn.Module):
 
 		self.action_shape = action_shape
 		self.state_shape = state_shape
-		self.feature_size = self.action_shape + (2 * self.state_shape[0]) + 2
+		self.feature_size = self.action_shape + (2 * self.state_shape) + 2
 		self.action_low = action_low
 		self.action_high = action_high
 		self.state_low = state_low
@@ -146,8 +146,8 @@ class GenerativeReplay(nn.Module):
 	def sample(self, batch_size):
 
 		sample = Variable(torch.randn(batch_size, self.z_dim))
-		recon_x = np.arctanh(self.decoder(sample))
-		result = self.descale(recon_x)
+		recon_x = np.arctanh(self.decoder(sample).detach().numpy())
+		result = self.descale(torch.Tensor(recon_x))
 
 		## descale
 
