@@ -59,13 +59,14 @@ class GenerativeReplay(nn.Module):
 
 		self.action_shape = action_shape
 		self.state_shape = state_shape
-		self.feature_size = self.action_shape[0] + (2 * self.state_shape[0]) + 2
+		self.feature_size = self.action_shape + (2 * self.state_shape[0]) + 2
 		self.action_low = action_low
 		self.action_high = action_high
 		self.state_low = state_low
 		self.state_high = state_high
 		self.reward_low = -20.0
 		self.reward_high = 0.0
+		self.z_dim = z_dim
 		self.encoder = nn.Sequential(
 			nn.Linear(self.feature_size, h_dim),
 			nn.LeakyReLU(0.2),
@@ -89,7 +90,7 @@ class GenerativeReplay(nn.Module):
 		(((x[:, 4].sub_(self.state_low[0])).div_((self.state_high[0] - self.state_low[0]))).mul_(2.0)).sub_(1.0).cuda()
 		(((x[:, 5].sub_(self.state_low[1])).div_((self.state_high[1] - self.state_low[1]))).mul_(2.0)).sub_(1.0).cuda()
 		(((x[:, 6].sub_(self.state_low[2])).div_((self.state_high[2] - self.state_low[2]))).mul_(2.0)).sub_(1.0).cuda()
-		(((x[:, 7].sub_(self.reward_low)).div_((self.reward_high - self.reward_high))).mul_(2.0)).sub_(1.0).cuda()
+		(((x[:, 7].sub_(self.reward_low)).div_((self.reward_high - self.reward_low))).mul_(2.0)).sub_(1.0).cuda()
 		(((x[:, 8].sub_(0.0)).div_(1.0)).mul_(2.0)).sub_(1.0).cuda()
 		return x
 
@@ -108,7 +109,7 @@ class GenerativeReplay(nn.Module):
 
 	def reparameterize(self, mu, logvar):
 		std = logvar.mul(0.5).exp_()
-		esp = to_var(torch.randn(*mu.size()))
+		esp = torch.randn(*mu.size())
 		z = mu + std * esp
 		return z
 
@@ -144,16 +145,16 @@ class GenerativeReplay(nn.Module):
 
 	def sample(self, batch_size):
 
-		sample = Variable(torch.randn(batch_size, 9))
-		recon_x = self.decoder(sample)
+		sample = Variable(torch.randn(batch_size, self.z_dim))
+		recon_x = np.arctanh(self.decoder(sample))
 		result = self.descale(recon_x)
 
 		## descale
 
 		return (
-			torch.FloatTensor(result[:3]).to(self.device),
-			torch.FloatTensor(result[3]).to(self.device),
-			torch.FloatTensor(result[4:7]).to(self.device),
-			torch.FloatTensor(result[-2]).to(self.device),
-			torch.FloatTensor(result[-1]).to(self.device)
+			torch.FloatTensor(result[:,0:3]).to(self.device),
+			torch.FloatTensor(result[:,3]).to(self.device),
+			torch.FloatTensor(result[:,4:7]).to(self.device),
+			torch.FloatTensor(result[:,-2]).to(self.device),
+			torch.FloatTensor(result[:,-1]).to(self.device)
 		)

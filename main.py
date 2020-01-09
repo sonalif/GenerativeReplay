@@ -34,7 +34,7 @@ def eval_policy(policy, env_name, seed, eval_episodes=10):
 
 
 def loss_fn(recon_x, x, mu, logvar):
-	BCE = F.binary_cross_entropy(recon_x, x, size_average=False)
+	BCE = F.mse_loss(recon_x, x, size_average=False)
 	# see Appendix B from VAE paper:
 	# Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
 	# 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
@@ -151,14 +151,14 @@ if __name__ == "__main__":
 
 			## train vae
 
-			recon_exp, mu, logvar = generative_replay(train_batch)
-			loss = loss_fn(recon_exp, train_batch, mu, logvar)
+			recon_exp, mu, logvar = generative_replay(train_batch.float())
+			loss = loss_fn(recon_exp, train_batch.float(), mu, logvar)
 			optimizer.zero_grad()
 			loss.backward()
 			optimizer.step()
 			print("Epoch[{}] Loss: {:.3f}".format(gr_train_count + 1, loss.data[0] / args.vae_batch_size))
 
-		train_batch[gr_index] = torch.cat((state, action, next_state, reward, done_bool), 0)
+		train_batch[gr_index] = torch.Tensor(np.concatenate((state, action, next_state, np.array([reward]), np.array([done_bool])), 0))
 		gr_index = gr_index + 1
 
 		# Store data in replay buffer
