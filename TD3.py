@@ -104,7 +104,14 @@ class TD3(object):
 
 		# Sample replay buffer 
 		#state, action, next_state, reward, not_done = replay.sample(batch_size) #generate from genReplay somehow
-		state, action, next_state, reward, not_done = replay.sample(batch_size)  # generate from genReplay somehow
+		state, action, next_state, reward, not_done = replay.sample(1)  # generate from genReplay somehow
+		print('-' * 30)
+		print(state)
+		print(action)
+		print(next_state)
+		print(reward)
+		print(not_done)
+		print('-' * 30)
 		## check for Welch T test
 
 		with torch.no_grad():
@@ -112,10 +119,17 @@ class TD3(object):
 			noise = (
 				torch.randn_like(action) * self.policy_noise
 			).clamp(-self.noise_clip, self.noise_clip)
-			
+			'''
+			print(state.size())  # 256 x 3
+			print(action.size())  # 256 x 1
+			print(next_state.size())  # 256 x 3
+			print(reward.size())  # 256 x 1
+			print(not_done.size())  #256 x 1
+			'''
 			next_action = (
 				self.actor_target(next_state) + noise
 			).clamp(-self.max_action, self.max_action)
+
 
 			# Compute the target Q value
 			target_Q1, target_Q2 = self.critic_target(next_state, next_action)

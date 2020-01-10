@@ -103,7 +103,7 @@ class GenerativeReplay(nn.Module):
 		(((x[:, 5].add_(1.0)).div_(2.0)).mul_(self.state_high[1] - self.state_low[1])).add_(self.state_low[1]).cuda()
 		(((x[:, 6].add_(1.0)).div_(2.0)).mul_(self.state_high[2] - self.state_low[2])).add_(self.state_low[2]).cuda()
 		(((x[:, 7].add_(1.0)).div_(2.0)).mul_(self.reward_high - self.reward_low)).add_(self.reward_low).cuda()
-		(x[:, 8].add_(1.0)).div_(2.0).cuda()
+		((x[:, 8].add_(1.0)).div_(2.0)).round_().cuda()
 
 		return x
 
@@ -152,9 +152,9 @@ class GenerativeReplay(nn.Module):
 		## descale
 
 		return (
-			torch.FloatTensor(result[:,0:3]).to(self.device),
-			torch.FloatTensor(result[:,3]).to(self.device),
-			torch.FloatTensor(result[:,4:7]).to(self.device),
-			torch.FloatTensor(result[:,-2]).to(self.device),
-			torch.FloatTensor(result[:,-1]).to(self.device)
+			torch.FloatTensor(result[:, 0:3]).to(self.device),
+			torch.FloatTensor(result[:, 3]).unsqueeze(1).to(self.device),
+			torch.FloatTensor(result[:, 4:7]).to(self.device),
+			torch.FloatTensor(result[:, -2]).unsqueeze(1).to(self.device),
+			torch.FloatTensor(result[:, -1]).unsqueeze(1).to(self.device)
 		)

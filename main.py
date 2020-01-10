@@ -112,7 +112,7 @@ if __name__ == "__main__":
 		policy_file = file_name if args.load_model == "default" else args.load_model
 		policy.load(f"./models/{policy_file}")
 
-	replay_buffer = utils.ReplayBuffer(state_dim, action_dim)  ## INITIALIZE
+	#replay_buffer = utils.ReplayBuffer(state_dim, action_dim)  ## INITIALIZE
 	generative_replay = utils.GenerativeReplay(action_dim, state_dim, action_low, action_high, state_low, state_high)
 	
 	# Evaluate untrained policy
@@ -143,10 +143,13 @@ if __name__ == "__main__":
 		# Perform action
 		next_state, reward, done, _ = env.step(action) 
 		done_bool = float(done) if episode_timesteps < env._max_episode_steps else 0
+		#replay_buffer.add(state, action, next_state, reward, done_bool)
 
 		if gr_index >= args.vae_batch_size:
 			gr_index = 0
-
+			#if t >= args.start_timesteps:
+				#train_batch = train_batch + generative_replay.sample(100)
+			
 			train_batch = generative_replay.normalise(train_batch)
 
 			## train vae
@@ -157,7 +160,7 @@ if __name__ == "__main__":
 			loss.backward()
 			optimizer.step()
 			print("Epoch[{}] Loss: {:.3f}".format(gr_train_count + 1, loss.item() / args.vae_batch_size))
-
+			
 		train_batch[gr_index] = torch.Tensor(np.concatenate((state, action, next_state, np.array([reward]), np.array([done_bool])), 0))
 		gr_index = gr_index + 1
 
