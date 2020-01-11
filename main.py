@@ -126,7 +126,7 @@ if __name__ == "__main__":
 	train_batch = torch.zeros([args.vae_batch_size, 9], dtype=torch.float64)
 	gr_index = 0
 	optimizer = torch.optim.Adam(generative_replay.parameters(), lr=1e-3)
-
+	global_count = 0
 	for t in range(int(args.max_timesteps)):
 		
 		episode_timesteps += 1
@@ -159,7 +159,9 @@ if __name__ == "__main__":
 			optimizer.zero_grad()
 			loss.backward()
 			optimizer.step()
-			print("Epoch[{}] Loss: {:.3f}".format(gr_train_count + 1, loss.item() / args.vae_batch_size))
+			global_count = global_count + 1
+			print("Epoch[{}] Loss: {:.3f}".format(global_count, loss.item() / args.vae_batch_size))
+
 			
 		train_batch[gr_index] = torch.Tensor(np.concatenate((state, action, next_state, np.array([reward]), np.array([done_bool])), 0))
 		gr_index = gr_index + 1

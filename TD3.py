@@ -104,14 +104,8 @@ class TD3(object):
 
 		# Sample replay buffer 
 		#state, action, next_state, reward, not_done = replay.sample(batch_size) #generate from genReplay somehow
-		state, action, next_state, reward, not_done = replay.sample(1)  # generate from genReplay somehow
-		print('-' * 30)
-		print(state)
-		print(action)
-		print(next_state)
-		print(reward)
-		print(not_done)
-		print('-' * 30)
+		state, action, next_state, reward, not_done = replay.sample(batch_size)  # generate from genReplay somehow
+
 		## check for Welch T test
 
 		with torch.no_grad():
