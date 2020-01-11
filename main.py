@@ -112,9 +112,8 @@ if __name__ == "__main__":
 		policy_file = file_name if args.load_model == "default" else args.load_model
 		policy.load(f"./models/{policy_file}")
 
-	#replay_buffer = utils.ReplayBuffer(state_dim, action_dim)  ## INITIALIZE
-	generative_replay = utils.GenerativeReplay(action_dim, state_dim, action_low, action_high, state_low, state_high)
-	
+	replay_buffer = utils.ReplayBuffer(state_dim, action_dim)  ## INITIALIZE
+
 	# Evaluate untrained policy
 	evaluations = [eval_policy(policy, args.env, args.seed)]  # Used for evaluating abg reward after a certain time step
 
@@ -125,8 +124,7 @@ if __name__ == "__main__":
 	episode_num = 0
 	train_batch = torch.zeros([args.vae_batch_size, 9], dtype=torch.float64)
 	gr_index = 0
-	optimizer = torch.optim.Adam(generative_replay.parameters(), lr=1e-3)
-	global_count = 0
+
 	for t in range(int(args.max_timesteps)):
 		
 		episode_timesteps += 1
@@ -143,40 +141,20 @@ if __name__ == "__main__":
 		# Perform action
 		next_state, reward, done, _ = env.step(action) 
 		done_bool = float(done) if episode_timesteps < env._max_episode_steps else 0
-		#replay_buffer.add(state, action, next_state, reward, done_bool)
-
-		if gr_index >= args.vae_batch_size:
-			gr_index = 0
-			#if t >= args.start_timesteps:
-				#train_batch = train_batch + generative_replay.sample(100)
-			
-			train_batch = generative_replay.normalise(train_batch)
-
-			## train vae
-
-			recon_exp, mu, logvar = generative_replay(train_batch.float())
-			loss = loss_fn(recon_exp, train_batch.float(), mu, logvar)
-			optimizer.zero_grad()
-			loss.backward()
-			optimizer.step()
-			global_count = global_count + 1
-			print("Epoch[{}] Loss: {:.3f}".format(global_count, loss.item() / args.vae_batch_size))
-
-			
-		train_batch[gr_index] = torch.Tensor(np.concatenate((state, action, next_state, np.array([reward]), np.array([done_bool])), 0))
-		gr_index = gr_index + 1
 
 		# Store data in replay buffer
-		#replay_buffer.add(state, action, next_state, reward, done_bool)  ## train??
 
-		## LOSS FUNCTION AND GRAD??
+		replay_buffer.add(state, action, next_state, reward, done_bool)
+
+
+
 
 		state = next_state
 		episode_reward += reward
 
 		# Train agent after collecting sufficient data
 		if t >= args.start_timesteps:
-			policy.train(generative_replay, args.batch_size)
+			policy.train(replay_buffer, args.batch_size)
 
 		if done: 
 			# +1 to account for 0 indexing. +0 on ep_timesteps since it will increment +1 even if done=True
