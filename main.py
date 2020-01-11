@@ -79,12 +79,14 @@ if __name__ == "__main__":
 
 	log_file = f"{args.policy}_{args.env}_{timestamp}.txt"
 
-	ff = open(os.path.join(log_dir, log_file), 'a+')
+	#ff = open(os.path.join(log_dir, log_file), 'a+')
+
+	sys.stdout = open(os.path.join(log_dir, log_file), 'a+')
 
 	file_name = f"{args.policy}_{args.env}_{args.seed}"
-	print("---------------------------------------", file=ff, flush=True)
-	print(f"Policy: {args.policy}, Env: {args.env}, Seed: {args.seed}", file=ff, flush=True)
-	print("---------------------------------------", file=ff, flush=True)
+	print("---------------------------------------", flush=True)
+	print(f"Policy: {args.policy}, Env: {args.env}, Seed: {args.seed}", flush=True)
+	print("---------------------------------------", flush=True)
 
 	if not os.path.exists("./results"):
 		os.makedirs("./results")
@@ -178,7 +180,7 @@ if __name__ == "__main__":
 
 		if done: 
 			# +1 to account for 0 indexing. +0 on ep_timesteps since it will increment +1 even if done=True
-			print(f"Total T: {t+1} Episode Num: {episode_num+1} Episode T: {episode_timesteps} Reward: {episode_reward:.3f}", file=ff, flush=True)
+			print(f"Total T: {t+1} Episode Num: {episode_num+1} Episode T: {episode_timesteps} Reward: {episode_reward:.3f}", flush=True)
 			# Reset environment
 			state, done = env.reset(), False
 			episode_reward = 0
