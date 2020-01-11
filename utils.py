@@ -11,6 +11,12 @@ from torchvision import transforms
 from torchvision.utils import save_image
 
 
+def write_log(filename, line):
+	with open(filename, 'w', encoding='utf-8') as f:
+		f.writelines(line)
+	f.close()
+
+
 def to_var(x):
 	if torch.cuda.is_available():
 		x = x.cuda()

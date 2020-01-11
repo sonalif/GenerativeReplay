@@ -4,11 +4,17 @@ import torch
 import gym
 import argparse
 import os
+import datetime
+import sys
+import dateutil.tz
 
 import utils
 import TD3
 import OurDDPG
 import DDPG
+
+
+from pygit2 import Repository
 
 
 # Runs policy for X episodes and returns average reward
@@ -63,16 +69,32 @@ if __name__ == "__main__":
 	parser.add_argument("--vae_batch_size", type=int, default=100)
 	args = parser.parse_args()
 
+	log_dir = "./logs/" + Repository('.').head.shorthand
+
+	if not os.path.exists(log_dir):
+		os.makedirs(log_dir)
+
+	now = datetime.datetime.now(dateutil.tz.tzlocal())
+	timestamp = now.strftime('%Y_%m_%d_%H_%M_%S')
+
+	log_file = f"{args.policy}_{args.env}_{timestamp}.txt"
+
+	sys.stdout = open(os.path.join(log_dir, log_file), 'a+')
+
 	file_name = f"{args.policy}_{args.env}_{args.seed}"
 	print("---------------------------------------")
 	print(f"Policy: {args.policy}, Env: {args.env}, Seed: {args.seed}")
 	print("---------------------------------------")
+
+
 
 	if not os.path.exists("./results"):
 		os.makedirs("./results")
 
 	if args.save_model and not os.path.exists("./models"):
 		os.makedirs("./models")
+
+
 
 	env = gym.make(args.env)
 
@@ -170,3 +192,5 @@ if __name__ == "__main__":
 			evaluations.append(eval_policy(policy, args.env, args.seed))
 			np.save(f"./results/{file_name}", evaluations)
 			if args.save_model: policy.save(f"./models/{file_name}")
+
+	sys.stdout.close()
