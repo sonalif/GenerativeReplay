@@ -17,6 +17,10 @@ def to_var(x):
 	return Variable(x)
 
 
+def angle_normalize(x):
+	return (((x + np.pi) % (2 * np.pi)) - np.pi)
+
+
 class ReplayBuffer(object):
 	def __init__(self, state_dim, action_dim, max_size=int(1e6)):
 		self.max_size = max_size
@@ -143,12 +147,29 @@ class GenerativeReplay(nn.Module):
 
 		return z, mu, logvar  ## split z to get all components
 
+	def get_next(self, state, action):
+		th, thdot = state
+
+		g = 10.0
+		m = 1.
+		l = 1.
+		dt = 0.05
+
+		action = np.clip(action, self.action_low, self.action_high)[0]
+		costs = angle_normalize(th) ** 2 + .1 * thdot ** 2 + .001 * (action ** 2)
+
+		newthdot = thdot + (-3 * g / (2 * l) * np.sin(th + np.pi) + 3. / (m * l ** 2) * action) * dt
+		newth = th + newthdot * dt
+		newthdot = np.clip(newthdot, -8, 8)  # pylint: disable=E1111
+
+		return np.array([np.cos(newth), np.sin(newth), newthdot]), -costs, False
+
 	def sample(self, batch_size):
 
 		sample = Variable(torch.randn(batch_size, self.z_dim))
-		recon_x = np.arctanh(self.decoder(sample).detach().numpy())
-		result = self.descale(torch.Tensor(recon_x))
-
+		#recon_x = np.arctanh(self.decoder(sample).detach().numpy())
+		#result = self.descale(torch.FloatTensor(recon_x))
+		result = self.descale(self.decoder(sample).detach())
 		## descale
 
 		return (
@@ -158,3 +179,4 @@ class GenerativeReplay(nn.Module):
 			torch.FloatTensor(result[:, -2]).unsqueeze(1).to(self.device),
 			torch.FloatTensor(result[:, -1]).unsqueeze(1).to(self.device)
 		)
+

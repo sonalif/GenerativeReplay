@@ -4,15 +4,21 @@ import torch
 import gym
 import argparse
 import os
+import sys
+import datetime
+import dateutil.tz
 
 import utils
 import TD3
 import OurDDPG
 import DDPG
 
+from pygit2 import Repository
 
 # Runs policy for X episodes and returns average reward
 # A fixed seed is used for the eval environment
+
+
 def eval_policy(policy, env_name, seed, eval_episodes=10):
 	eval_env = gym.make(env_name)
 	eval_env.seed(seed + 100)
@@ -27,9 +33,9 @@ def eval_policy(policy, env_name, seed, eval_episodes=10):
 
 	avg_reward /= eval_episodes
 
-	print("---------------------------------------")
-	print(f"Evaluation over {eval_episodes} episodes: {avg_reward:.3f}")
-	print("---------------------------------------")
+	print("---------------------------------------", flush=True)
+	print(f"Evaluation over {eval_episodes} episodes: {avg_reward:.3f}", flush=True)
+	print("---------------------------------------", flush=True)
 	return avg_reward
 
 
@@ -48,9 +54,10 @@ if __name__ == "__main__":
 	parser.add_argument("--policy", default="TD3")                  # Policy name (TD3, DDPG or OurDDPG)
 	parser.add_argument("--env", default="HalfCheetah-v2")          # OpenAI gym environment name
 	parser.add_argument("--seed", default=0, type=int)              # Sets Gym, PyTorch and Numpy seeds
-	parser.add_argument("--start_timesteps", default=1e4, type=int) # Time steps initial random policy is used
+	parser.add_argument("--start_timesteps", default=1e5, type=int) # Time steps initial random policy is used
 	parser.add_argument("--eval_freq", default=5e3, type=int)       # How often (time steps) we evaluate
-	parser.add_argument("--max_timesteps", default=1e6, type=int)   # Max time steps to run environment
+	parser.add_argument("--gr_save_freq", default=100, type=int)
+	parser.add_argument("--max_timesteps", default=2e6, type=int)   # Max time steps to run environment
 	parser.add_argument("--expl_noise", default=0.1)                # Std of Gaussian exploration noise
 	parser.add_argument("--batch_size", default=256, type=int)      # Batch size for both actor and critic
 	parser.add_argument("--discount", default=0.99)                 # Discount factor
@@ -62,17 +69,29 @@ if __name__ == "__main__":
 	parser.add_argument("--load_model", default="")                 # Model load file name, "" doesn't load, "default" uses file_name
 	parser.add_argument("--vae_batch_size", type=int, default=100)
 	args = parser.parse_args()
+	log_dir = "./logs/" + Repository('.').head.shorthand
+
+	if not os.path.exists(log_dir):
+		os.makedirs(log_dir)
+
+	now = datetime.datetime.now(dateutil.tz.tzlocal())
+	timestamp = now.strftime('%Y_%m_%d_%H_%M_%S')
+
+	log_file = f"{args.policy}_{args.env}_{timestamp}.txt"
+
+	#sys.stdout = open(os.path.join(log_dir, log_file), 'a+')
 
 	file_name = f"{args.policy}_{args.env}_{args.seed}"
-	print("---------------------------------------")
-	print(f"Policy: {args.policy}, Env: {args.env}, Seed: {args.seed}")
-	print("---------------------------------------")
+	print("---------------------------------------", flush=True)
+	print(f"Policy: {args.policy}, Env: {args.env}, Seed: {args.seed}", flush=True)
+	print("---------------------------------------", flush=True)
 
 	if not os.path.exists("./results"):
 		os.makedirs("./results")
 
 	if args.save_model and not os.path.exists("./models"):
-		os.makedirs("./models")
+		os.makedirs("./models/GR")
+		os.makedirs("./models/policy")
 
 	env = gym.make(args.env)
 
@@ -123,9 +142,9 @@ if __name__ == "__main__":
 	episode_reward = 0
 	episode_timesteps = 0
 	episode_num = 0
-	train_batch = torch.zeros([args.vae_batch_size, 9], dtype=torch.float64)
+	train_batch = torch.zeros([args.vae_batch_size, 9], dtype=torch.float)
 	gr_index = 0
-	optimizer = torch.optim.Adam(generative_replay.parameters(), lr=1e-3)
+	gr_optimizer = torch.optim.Adam(generative_replay.parameters(), lr=1e-3)
 	global_count = 0
 	for t in range(int(args.max_timesteps)):
 		
@@ -145,29 +164,36 @@ if __name__ == "__main__":
 		done_bool = float(done) if episode_timesteps < env._max_episode_steps else 0
 		#replay_buffer.add(state, action, next_state, reward, done_bool)
 
-		if gr_index >= args.vae_batch_size:
+		vae_batch_size = args.vae_batch_size
+		if gr_index >= vae_batch_size:
 			gr_index = 0
-			#if t >= args.start_timesteps:
-				#train_batch = train_batch + generative_replay.sample(100)
-			
+			if t >= args.start_timesteps:
+				vae_batch_size = int(args.vae_batch_size/2)
+				temp = torch.cat(generative_replay.sample(int(args.vae_batch_size/2)), 1).to(torch.device('cpu'))
+
+				train_batch = torch.cat((train_batch, temp), 0)
+
 			train_batch = generative_replay.normalise(train_batch)
 
-			## train vae
+			# Shuffle
+
+			perm = torch.randperm(train_batch.size()[0])
+			train_batch = train_batch[perm]
 
 			recon_exp, mu, logvar = generative_replay(train_batch.float())
 			loss = loss_fn(recon_exp, train_batch.float(), mu, logvar)
-			optimizer.zero_grad()
+			gr_optimizer.zero_grad()
 			loss.backward()
-			optimizer.step()
+			gr_optimizer.step()
 			global_count = global_count + 1
-			print("Epoch[{}] Loss: {:.3f}".format(global_count, loss.item() / args.vae_batch_size))
+			print("Epoch[{}] Loss: {:.3f}".format(global_count, loss.item() / train_batch.size()[0]), flush=True)
 
-			
-		train_batch[gr_index] = torch.Tensor(np.concatenate((state, action, next_state, np.array([reward]), np.array([done_bool])), 0))
+			if global_count % args.gr_save_freq == 0:
+				torch.save(generative_replay.state_dict(), f"./models/GR/{Repository('.').head.shorthand}_{args.env}.pth")
+				torch.save(gr_optimizer.state_dict(), f"./models/GR/{Repository('.').head.shorthand}_{args.env}_optimizer.pth")
+			train_batch = torch.zeros([args.vae_batch_size, 9], dtype=torch.float)
+		train_batch[gr_index] = torch.FloatTensor(np.concatenate((state, action, next_state, np.array([reward]), np.array([done_bool])), 0))
 		gr_index = gr_index + 1
-
-		# Store data in replay buffer
-		#replay_buffer.add(state, action, next_state, reward, done_bool)  ## train??
 
 		## LOSS FUNCTION AND GRAD??
 
@@ -180,7 +206,7 @@ if __name__ == "__main__":
 
 		if done: 
 			# +1 to account for 0 indexing. +0 on ep_timesteps since it will increment +1 even if done=True
-			print(f"Total T: {t+1} Episode Num: {episode_num+1} Episode T: {episode_timesteps} Reward: {episode_reward:.3f}")
+			print(f"Total T: {t+1} Episode Num: {episode_num+1} Episode T: {episode_timesteps} Reward: {episode_reward:.3f}", flush=True)
 			# Reset environment
 			state, done = env.reset(), False
 			episode_reward = 0
@@ -191,4 +217,6 @@ if __name__ == "__main__":
 		if (t + 1) % args.eval_freq == 0:
 			evaluations.append(eval_policy(policy, args.env, args.seed))
 			np.save(f"./results/{file_name}", evaluations)
-			if args.save_model: policy.save(f"./models/{file_name}")
+			if args.save_model: policy.save(f"./models/policy/{file_name}")
+
+	#sys.stdout.close()
