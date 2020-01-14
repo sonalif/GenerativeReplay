@@ -148,8 +148,8 @@ class GenerativeReplay(nn.Module):
 		return z, mu, logvar  ## split z to get all components
 
 	def get_next(self, state, action):
-		th, thdot = state
-
+		th, _, thdot = state
+		
 		g = 10.0
 		m = 1.
 		l = 1.
