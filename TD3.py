@@ -11,6 +11,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Paper: https://arxiv.org/abs/1802.09477
 
 
+def angle_normalize(x):
+	return (((x + np.pi) % (2 * np.pi)) - np.pi)
+
+
 class Actor(nn.Module):
 	def __init__(self, state_dim, action_dim, max_action):
 		super(Actor, self).__init__()
@@ -99,12 +103,32 @@ class TD3(object):
 		state = torch.FloatTensor(state.reshape(1, -1)).to(device)
 		return self.actor(state).cpu().data.numpy().flatten()
 
+	def get_next(self, state, action):
+		th, _, thdot = state
+
+		g = 10.0
+		m = 1.
+		l = 1.
+		dt = 0.05
+
+		action = np.clip(action, self.action_low, self.action_high)[0]
+		costs = angle_normalize(th) ** 2 + .1 * thdot ** 2 + .001 * (action ** 2)
+
+		newthdot = thdot + (-3 * g / (2 * l) * np.sin(th + np.pi) + 3. / (m * l ** 2) * action) * dt
+		newth = th + newthdot * dt
+		newthdot = np.clip(newthdot, -8, 8)  # pylint: disable=E1111
+
+		return np.array([np.cos(newth), np.sin(newth), newthdot]), -costs, 0
+
 	def train(self, replay, batch_size=100):
 		self.total_it += 1
 
 		# Sample replay buffer 
 		#state, action, next_state, reward, not_done = replay.sample(batch_size) #generate from genReplay somehow
-		state, action, next_state, reward, not_done = replay.sample(batch_size)  # generate from genReplay somehow
+		samples = replay.sample(batch_size)  # generate from genReplay somehow
+		state = samples[:, 0:3]
+		action = samples[:, -1]
+		next_state, reward, not_done = self.get_next(state, action)
 
 		## check for Welch T test
 
