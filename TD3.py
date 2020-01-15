@@ -104,21 +104,24 @@ class TD3(object):
 		return self.actor(state).cpu().data.numpy().flatten()
 
 	def get_next(self, state, action):
-		th, _, thdot = state
+		#print(state.shape)
+		th = state[0]
+		thdot = state[2]
 
 		g = 10.0
 		m = 1.
 		l = 1.
 		dt = 0.05
 
-		action = np.clip(action, self.action_low, self.action_high)[0]
+		action = np.clip(action, -2.0, 2.0).item()
 		costs = angle_normalize(th) ** 2 + .1 * thdot ** 2 + .001 * (action ** 2)
 
 		newthdot = thdot + (-3 * g / (2 * l) * np.sin(th + np.pi) + 3. / (m * l ** 2) * action) * dt
 		newth = th + newthdot * dt
 		newthdot = np.clip(newthdot, -8, 8)  # pylint: disable=E1111
+		new_state = [np.cos(newth), np.sin(newth), newthdot]
 
-		return np.array([np.cos(newth), np.sin(newth), newthdot]), -costs, 0
+		return new_state, [-costs], [0]
 
 	def train(self, replay, batch_size=100):
 		self.total_it += 1
@@ -128,8 +131,18 @@ class TD3(object):
 		samples = replay.sample(batch_size)  # generate from genReplay somehow
 		state = samples[:, 0:3]
 		action = samples[:, -1]
-		next_state, reward, not_done = self.get_next(state, action)
-
+		next_state = []
+		reward = []
+		not_done = []
+		for ix in range(batch_size):
+			ns, r, nd = self.get_next(state[ix].cpu(), action[ix].cpu())
+			next_state.append(ns)
+			reward.append(r)
+			not_done.append(nd)
+		next_state = torch.Tensor(next_state).cuda()
+		reward = torch.Tensor(reward).cuda()
+		not_done = torch.Tensor(not_done).cuda()
+		action = action.unsqueeze(1)
 		## check for Welch T test
 
 		with torch.no_grad():
@@ -147,7 +160,6 @@ class TD3(object):
 			next_action = (
 				self.actor_target(next_state) + noise
 			).clamp(-self.max_action, self.max_action)
-
 
 			# Compute the target Q value
 			target_Q1, target_Q2 = self.critic_target(next_state, next_action)
