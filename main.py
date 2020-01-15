@@ -55,7 +55,7 @@ if __name__ == "__main__":
     parser.add_argument("--policy", default="TD3")  # Policy name (TD3, DDPG or OurDDPG)
     parser.add_argument("--env", default="Pendulum-v0")  # OpenAI gym environment name
     parser.add_argument("--seed", default=0, type=int)  # Sets Gym, PyTorch and Numpy seeds
-    parser.add_argument("--start_timesteps", default=1e5, type=int)  # Time steps initial random policy is used
+    parser.add_argument("--start_timesteps", default=1e4, type=int)  # Time steps initial random policy is used
     parser.add_argument("--eval_freq", default=5e3, type=int)  # How often (time steps) we evaluate
     parser.add_argument("--gr_save_freq", default=100, type=int)
     parser.add_argument("--max_timesteps", default=2e6, type=int)  # Max time steps to run environment
@@ -183,7 +183,7 @@ if __name__ == "__main__":
             perm = torch.randperm(train_batch.size()[0])
             train_batch = train_batch[perm]
 
-            d_loss, g_loss, gen_xy, gen_yx, critic, opt_g, opt_d = generative_replay.train(train_batch)
+            d_loss, g_loss, gen_xy, gen_yx, critic, opt_gxy, opt_gyx, opt_d = generative_replay.train(train_batch)
 
             print(
                 "[Epoch %d] [D loss: %f] [G loss: %f]"
@@ -196,10 +196,13 @@ if __name__ == "__main__":
                 torch.save(gen_xy,
                            f"./models/GR/{Repository('.').head.shorthand}_{'G_XY'}_{args.env}.pth")
 
+                torch.save(opt_gxy,
+                           f"./models/GR/{Repository('.').head.shorthand}_{'G_XY'}_{args.env}_optimizer.pth")
+
                 torch.save(gen_yx,
                            f"./models/GR/{Repository('.').head.shorthand}_{'G_YX'}_{args.env}.pth")
-                torch.save(opt_g,
-                           f"./models/GR/{Repository('.').head.shorthand}_{'G'}_{args.env}_optimizer.pth")
+                torch.save(opt_gyx,
+                           f"./models/GR/{Repository('.').head.shorthand}_{'G_YX'}_{args.env}_optimizer.pth")
 
                 torch.save(critic,
                            f"./models/GR/{Repository('.').head.shorthand}_{'D'}_{args.env}.pth")

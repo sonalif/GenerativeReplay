@@ -279,11 +279,12 @@ class JointGANTrainer():
 		self.discriminatorX = DiscriminatorX(self.state_shape).cuda()
 		self.discriminatorY = DiscriminatorY(self.action_shape).cuda()
 
-		self.G_params = list(self.gen_xy.parameters()) + list(self.gen_yx.parameters())
-		self.D_params = list(self.discriminator.parameters()) + list(self.discriminatorX.parameters()) + list(self.discriminatorY.parameters())
+		#self.G_params = list(self.gen_xy.parameters()) + list(self.gen_yx.parameters())
+		#self.D_params = list(self.discriminator.parameters()) + list(self.discriminatorX.parameters()) + list(self.discriminatorY.parameters())
 
-		self.optimizer_G = torch.optim.Adam(self.G_params, lr=0.0002)  ## param sharing between generators ??
-		self.optimizer_D = torch.optim.Adam(self.D_params, lr=0.0002)
+		self.optimizer_Gxy = torch.optim.Adam(self.gen_xy.parameters(), lr=0.0002)  ## param sharing between generators ??
+		self.optimizer_Gyx = torch.optim.Adam(self.gen_yx.parameters(), lr=0.0002)
+		self.optimizer_D = torch.optim.Adam(self.discriminator.parameters(), lr=0.0002)
 
 
 	def normalise(self, x):
@@ -305,32 +306,73 @@ class JointGANTrainer():
 	def compute_D_losses(self, state, action, a_x, b_y, p2, p1, p4, p3):
 
 		D1 = self.discriminator(state, action)
+		D2 = self.discriminator(p2, action)
+		D3 = self.discriminator(state, p1)
+		D4 = self.discriminator(a_x, p3)
+		D5 = self.discriminator(p4, b_y)
 		#D2 = self.discriminator()
-		D6 = self.discriminatorX(p2)
-		D8 = self.discriminatorX(p4)
-		D9 = self.discriminatorX(state)
-
-		D10 = self.discriminatorY(p1)
-		D12 = self.discriminatorY(p3)
-		D13 = self.discriminatorY(action)
 
 		# lables are float
-		D1_label = torch.zeros((int(D1.size()[0])), dtype=torch.long).fill_(0).cuda()
+		D1_label = torch.zeros((int(D1.size()[0])), dtype=torch.long).fill_(4).cuda()
 		D1_loss = nn.CrossEntropyLoss(reduction='mean')(D1, D1_label)
 
+		D21_label = torch.zeros((int(D2.size()[0])), dtype=torch.long).fill_(0).cuda()
+		D21_loss = nn.CrossEntropyLoss(reduction='mean')(D2, D21_label)
 
-		real_labels = torch.ones((self.batch_size, 1)).cuda()
-		fake_labels = torch.zeros((self.batch_size, 1)).cuda()
+		D22_label = torch.zeros((int(D2.size()[0])), dtype=torch.long).fill_(2).cuda()
+		D22_loss = nn.CrossEntropyLoss(reduction='mean')(D2, D22_label)
 
-		D9_loss = nn.MSELoss()(D9, real_labels)
-		D13_loss = nn.MSELoss()(D13, real_labels)
+		D23_label = torch.zeros((int(D2.size()[0])), dtype=torch.long).fill_(3).cuda()
+		D23_loss = nn.CrossEntropyLoss(reduction='mean')(D2, D23_label)
 
-		D6_loss = nn.MSELoss()(D6, fake_labels)
-		D8_loss = nn.MSELoss()(D8, fake_labels)
-		D10_loss = nn.MSELoss()(D10, fake_labels)
-		D12_loss = nn.MSELoss()(D12, fake_labels)
+		D24_label = torch.zeros((int(D2.size()[0])), dtype=torch.long).fill_(4).cuda()
+		D24_loss = nn.CrossEntropyLoss(reduction='mean')(D2, D24_label)
 
-		d_loss = D1_loss + D6_loss + D8_loss + D9_loss + D10_loss + D12_loss + D13_loss
+		D2_loss = (D21_loss + D22_loss + D23_loss + D24_loss)/4.0
+
+		D31_label = torch.zeros((int(D3.size()[0])), dtype=torch.long).fill_(0).cuda()
+		D31_loss = nn.CrossEntropyLoss(reduction='mean')(D3, D31_label)
+
+		D32_label = torch.zeros((int(D3.size()[0])), dtype=torch.long).fill_(2).cuda()
+		D32_loss = nn.CrossEntropyLoss(reduction='mean')(D3, D32_label)
+
+		D33_label = torch.zeros((int(D3.size()[0])), dtype=torch.long).fill_(3).cuda()
+		D33_loss = nn.CrossEntropyLoss(reduction='mean')(D3, D33_label)
+
+		D34_label = torch.zeros((int(D3.size()[0])), dtype=torch.long).fill_(4).cuda()
+		D34_loss = nn.CrossEntropyLoss(reduction='mean')(D3, D34_label)
+
+		D3_loss = (D31_loss + D32_loss + D33_loss + D34_loss) / 4.0
+
+		D41_label = torch.zeros((int(D4.size()[0])), dtype=torch.long).fill_(1).cuda()
+		D41_loss = nn.CrossEntropyLoss(reduction='mean')(D4, D41_label)
+
+		D42_label = torch.zeros((int(D4.size()[0])), dtype=torch.long).fill_(0).cuda()
+		D42_loss = nn.CrossEntropyLoss(reduction='mean')(D4, D42_label)
+
+		D43_label = torch.zeros((int(D4.size()[0])), dtype=torch.long).fill_(3).cuda()
+		D43_loss = nn.CrossEntropyLoss(reduction='mean')(D4, D43_label)
+
+		D44_label = torch.zeros((int(D4.size()[0])), dtype=torch.long).fill_(4).cuda()
+		D44_loss = nn.CrossEntropyLoss(reduction='mean')(D4, D44_label)
+
+		D4_loss = (D41_loss + D42_loss + D43_loss + D44_loss) / 4.0
+
+		D51_label = torch.zeros((int(D5.size()[0])), dtype=torch.long).fill_(1).cuda()
+		D51_loss = nn.CrossEntropyLoss(reduction='mean')(D5, D51_label)
+
+		D52_label = torch.zeros((int(D5.size()[0])), dtype=torch.long).fill_(2).cuda()
+		D52_loss = nn.CrossEntropyLoss(reduction='mean')(D5, D52_label)
+
+		D53_label = torch.zeros((int(D5.size()[0])), dtype=torch.long).fill_(0).cuda()
+		D53_loss = nn.CrossEntropyLoss(reduction='mean')(D5, D53_label)
+
+		D54_label = torch.zeros((int(D5.size()[0])), dtype=torch.long).fill_(4).cuda()
+		D54_loss = nn.CrossEntropyLoss(reduction='mean')(D5, D54_label)
+
+		D5_loss = (D51_loss + D52_loss + D53_loss + D54_loss) / 4.0
+
+		d_loss = D1_loss + D2_loss + D3_loss + D4_loss + D5_loss
 
 		return d_loss
 
@@ -340,7 +382,7 @@ class JointGANTrainer():
 		g2 = self.discriminator(state, p1)
 		g3 = self.discriminator(a_x, p3)
 		g4 = self.discriminator(p4, b_y)
-		#g5 = self.discriminator(state, action)
+		g5 = self.discriminator(state, action)
 
 		# lables are float
 		g1_label = torch.zeros((int(g1.size()[0])), dtype=torch.long).fill_(0).cuda()
@@ -355,10 +397,10 @@ class JointGANTrainer():
 		g4_label = torch.zeros((int(g4.size()[0])), dtype=torch.long).fill_(3).cuda()
 		g4_loss = nn.CrossEntropyLoss(reduction='mean')(g4, g4_label)
 
-		#g5_label = torch.zeros((int(g5.size()[0])), dtype=torch.long).fill_(4).cuda()
-		#g5_loss = nn.CrossEntropyLoss(reduction='mean')(g5, g5_label)
+		g5_label = torch.zeros((int(g5.size()[0])), dtype=torch.long).fill_(4).cuda()
+		g5_loss = nn.CrossEntropyLoss(reduction='mean')(g5, g5_label)
 
-		g_loss = g1_loss + g2_loss + g3_loss + g4_loss
+		g_loss = g1_loss + g2_loss + g3_loss + g4_loss + g5_loss
 		return g_loss
 
 	def train(self, train_data):
@@ -373,7 +415,8 @@ class JointGANTrainer():
 			action = torch.FloatTensor(action[0:self.batch_size]).unsqueeze(1).cuda()
 			state = torch.FloatTensor(state[0:self.batch_size]).cuda()
 
-			self.optimizer_G.zero_grad()
+			self.optimizer_Gxy.zero_grad()
+			self.optimizer_Gyx.zero_grad()
 
 			# P2(x, y) = q(y) p(x|y) phi
 			z1 = torch.FloatTensor(torch.randn((self.batch_size, self.latent_size))).cuda()
@@ -405,7 +448,8 @@ class JointGANTrainer():
 
 			generator_loss.backward()
 
-			self.optimizer_G.step()
+			self.optimizer_Gxy.step()
+			self.optimizer_Gyx.step()
 
 			self.optimizer_D.zero_grad()
 			discriminator_loss = self.compute_D_losses(state, action, self.alpha_x.detach(), self.beta_y.detach(), self.P2.detach(), self.P1.detach(), self.P4.detach(), self.P3.detach())
@@ -456,14 +500,15 @@ class JointGANTrainer():
 			self.optimizer_D.step()
 
 		return discriminator_loss.item(), generator_loss.item(), self.gen_xy.state_dict(), self.gen_yx.state_dict(), \
-			   self.discriminator.state_dict(), self.optimizer_G.state_dict(), self.optimizer_D.state_dict()
+			   self.discriminator.state_dict(), self.optimizer_Gxy.state_dict(), self.optimizer_Gyx.state_dict(), self.optimizer_D.state_dict()
+
 
 	def sample(self, size):
 		noise = torch.randn(size, self.latent_size)
 		z = torch.zeros((size, self.action_shape))
-		state = self.gen_yx(torch.cat((z, noise), 1).cuda())
-		result = self.descale(state.detach())
+		state = self.gen_yx(torch.cat((z, noise), 1).cuda()).detach()
+		action = self.gen_xy(torch.cat((state, noise.cuda()), 1).cuda()).detach()
 
-		action = self.descale(self.gen_xy(torch.cat((result, noise), 1)).detach())
+		result = self.descale(torch.cat((state, action), 1))
 
-		return torch.cat((result, action), 1).cuda()
+		return result.cuda()
