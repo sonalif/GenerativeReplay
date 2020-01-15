@@ -220,7 +220,7 @@ class Discriminator(nn.Module):
 			nn.Linear(self.state_shape + self.action_space, 6),
 			nn.LeakyReLU(0.2, inplace=True),
 			nn.Linear(6, 4),
-			nn.Linear(4, 5),
+			nn.Linear(4, 1),
 		)
 
 	def forward(self, state, action):
@@ -305,7 +305,11 @@ class JointGANTrainer():
 	def compute_D_losses(self, state, action, a_x, b_y, p2, p1, p4, p3):
 
 		D1 = self.discriminator(state, action)
-		#D2 = self.discriminator()
+		D2 = self.discriminator(p2, action)
+		D3 = self.discriminator(state, p1)
+		D4 = self.discriminator(a_x, p3)
+		D5 = self.discriminator(p4, b_y)
+
 		D6 = self.discriminatorX(p2)
 		D8 = self.discriminatorX(p4)
 		D9 = self.discriminatorX(state)
@@ -314,10 +318,21 @@ class JointGANTrainer():
 		D12 = self.discriminatorY(p3)
 		D13 = self.discriminatorY(action)
 
-		# lables are float
-		D1_label = torch.zeros((int(D1.size()[0])), dtype=torch.long).fill_(0).cuda()
-		D1_loss = nn.CrossEntropyLoss(reduction='mean')(D1, D1_label)
+		# real
+		D1_label = torch.ones_like(D1, dtype=torch.long).cuda()
+		D1_loss = nn.BCEWithLogitsLoss(reduction='mean')(D1, D1_label)
 
+		D2_label = torch.zeros_like(D2, dtype=torch.long).cuda()
+		D2_loss = nn.BCEWithLogitsLoss(reduction='mean')(D2, D2_label)
+
+		D3_label = torch.zeros_like(D3, dtype=torch.long).cuda()
+		D3_loss = nn.BCEWithLogitsLoss(reduction='mean')(D3, D3_label)
+
+		D4_label = torch.zeros_like(D4, dtype=torch.long).cuda()
+		D4_loss = nn.BCEWithLogitsLoss(reduction='mean')(D4, D4_label)
+
+		D5_label = torch.zeros_like(D5, dtype=torch.long).cuda()
+		D5_loss = nn.BCEWithLogitsLoss(reduction='mean')(D5, D5_label)
 
 		real_labels = torch.ones((self.batch_size, 1)).cuda()
 		fake_labels = torch.zeros((self.batch_size, 1)).cuda()
@@ -330,7 +345,7 @@ class JointGANTrainer():
 		D10_loss = nn.MSELoss()(D10, fake_labels)
 		D12_loss = nn.MSELoss()(D12, fake_labels)
 
-		d_loss = D1_loss + D6_loss + D8_loss + D9_loss + D10_loss + D12_loss + D13_loss
+		d_loss = D1_loss + D2_loss + D3_loss + (D6_loss + D8_loss + D9_loss)/3.0 + (D10_loss + D12_loss + D13_loss)/3.0
 
 		return d_loss
 
@@ -342,23 +357,49 @@ class JointGANTrainer():
 		g4 = self.discriminator(p4, b_y)
 		#g5 = self.discriminator(state, action)
 
+		g5 = self.discriminatorX(p2)
+		g6 = self.discriminatorX(p4)
+		g7 = self.discriminatorX(a_x)
+
+		g8 = self.discriminatorY(p1)
+		g9 = self.discriminatorY(p2)
+		g10 = self.discriminatorY(b_y)
+
 		# lables are float
-		g1_label = torch.zeros((int(g1.size()[0])), dtype=torch.long).fill_(0).cuda()
-		g1_loss = nn.CrossEntropyLoss(reduction='mean')(g1, g1_label)
+		g1_label = torch.ones_like(g1, dtype=torch.long).cuda()
+		g1_loss = nn.BCEWithLogitsLoss(reduction='mean')(g1, g1_label)
 
-		g2_label = torch.zeros((int(g2.size()[0])), dtype=torch.long).fill_(1).cuda()
-		g2_loss = nn.CrossEntropyLoss(reduction='mean')(g2, g2_label)
+		g2_label = torch.ones_like(g2, dtype=torch.long).cuda()
+		g2_loss = nn.BCEWithLogitsLoss(reduction='mean')(g2, g2_label)
 
-		g3_label = torch.zeros((int(g3.size()[0])), dtype=torch.long).fill_(2).cuda()
-		g3_loss = nn.CrossEntropyLoss(reduction='mean')(g3, g3_label)
+		g3_label = torch.ones_like(g3, dtype=torch.long).cuda()
+		g3_loss = nn.BCEWithLogitsLoss(reduction='mean')(g3, g3_label)
 
-		g4_label = torch.zeros((int(g4.size()[0])), dtype=torch.long).fill_(3).cuda()
-		g4_loss = nn.CrossEntropyLoss(reduction='mean')(g4, g4_label)
+		g4_label = torch.ones_like(g4, dtype=torch.long).cuda()
+		g4_loss = nn.BCEWithLogitsLoss(reduction='mean')(g4, g4_label)
+
+		g5_label = torch.ones_like(g4, dtype=torch.long).cuda()
+		g5_loss = nn.BCEWithLogitsLoss(reduction='mean')(g5, g5_label)
+
+		g6_label = torch.ones_like(g4, dtype=torch.long).cuda()
+		g6_loss = nn.BCEWithLogitsLoss(reduction='mean')(g6, g6_label)
+
+		g7_label = torch.ones_like(g4, dtype=torch.long).cuda()
+		g7_loss = nn.BCEWithLogitsLoss(reduction='mean')(g7, g7_label)
+
+		g8_label = torch.ones_like(g4, dtype=torch.long).cuda()
+		g8_loss = nn.BCEWithLogitsLoss(reduction='mean')(g8, g8_label)
+
+		g9_label = torch.ones_like(g4, dtype=torch.long).cuda()
+		g9_loss = nn.BCEWithLogitsLoss(reduction='mean')(g9, g9_label)
+
+		g10_label = torch.ones_like(g4, dtype=torch.long).cuda()
+		g10_loss = nn.BCEWithLogitsLoss(reduction='mean')(g10, g10_label)
 
 		#g5_label = torch.zeros((int(g5.size()[0])), dtype=torch.long).fill_(4).cuda()
 		#g5_loss = nn.CrossEntropyLoss(reduction='mean')(g5, g5_label)
 
-		g_loss = g1_loss + g2_loss + g3_loss + g4_loss
+		g_loss = g1_loss + g2_loss + g3_loss + g4_loss + (g5_loss + g6_loss + g7_loss)/3.0 + (g8_loss + g9_loss + g10_loss)/3.0
 		return g_loss
 
 	def train(self, train_data):
@@ -461,9 +502,9 @@ class JointGANTrainer():
 	def sample(self, size):
 		noise = torch.randn(size, self.latent_size)
 		z = torch.zeros((size, self.action_shape))
-		state = self.gen_yx(torch.cat((z, noise), 1).cuda())
-		result = self.descale(state.detach())
+		state = self.gen_yx(torch.cat((z, noise), 1).cuda()).detach()
+		action = self.gen_xy(torch.cat((state, noise), 1).cuda()).detach()
 
-		action = self.descale(self.gen_xy(torch.cat((result, noise), 1)).detach())
+		result = self.descale(torch.cat((state, action), 1))
 
-		return torch.cat((result, action), 1).cuda()
+		return result.cuda()
