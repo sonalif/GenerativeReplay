@@ -117,26 +117,6 @@ class GenerativeReplay(nn.Module):
 		z = mu + std * esp
 		return z
 
-	def activation(self, z):
-		for i in range(self.state_shape[0]):
-			if i == 0:
-				state = nn.Hardtanh(min_val=self.state_low[i], max_val=self.state_high[i])(z[i])
-			else:
-				state = torch.cat((state, nn.Hardtanh(min_val=self.state_low[i], max_val=self.state_high[i])(z[i])), 0)
-
-		state = nn.Hardtanh(min_val=self.action_low, max_val=self.action_high)(z[0: self.state_shape[0]])
-		action = nn.Hardtanh(min_val=self.action_low, max_val=self.action_high)(z[self.state_shape[0]: self.state_shape[0] + self.action_shape[0]])
-
-		for i in range(self.state_shape[0] + self.action_shape[0], 2 * self.state_shape[0] + self.action_shape[0]):
-			if i == (self.state_shape[0] + self.action_shape[0]):
-				next_state = nn.Hardtanh(min_val=self.state_low[i], max_val=self.state_high[i])(z[i])
-			else:
-				next_state = torch.cat((state, nn.Hardtanh(min_val=self.state_low[i], max_val=self.state_high[i])(z[i])), 0)
-
-		reward = z[-2]
-		done = nn.Sigmoid()(z[-1])
-
-		return torch.cat((state, action, next_state, reward, done), 0)
 
 	def forward(self, x):
 
@@ -180,3 +160,119 @@ class GenerativeReplay(nn.Module):
 			torch.FloatTensor(result[:, -1]).unsqueeze(1).to(self.device)
 		)
 
+
+class RBM_GR(nn.Module):
+	r"""Restricted Boltzmann Machine.
+	Args:
+		n_vis (int, optional): The size of visible layer. Defaults to 784.
+		n_hid (int, optional): The size of hidden layer. Defaults to 128.
+		k (int, optional): The number of Gibbs sampling. Defaults to 1.
+	"""
+
+	def __init__(self, action_shape, state_shape, action_low, action_high, state_low, state_high, n_vis=9, n_hid=3, k=1):
+		"""Create a RBM."""
+		super(RBM_GR, self).__init__()
+		self.v = nn.Parameter(torch.randn(1, n_vis))
+		self.h = nn.Parameter(torch.randn(1, n_hid))
+		self.W = nn.Parameter(torch.randn(n_hid, n_vis))
+		self.n_hid = n_hid
+		self.k = k
+		self.action_shape = action_shape
+		self.state_shape = state_shape
+		self.feature_size = self.action_shape + (2 * self.state_shape) + 2
+		self.action_low = action_low
+		self.action_high = action_high
+		self.state_low = state_low
+		self.state_high = state_high
+		self.reward_low = -20.0
+		self.reward_high = 0.0
+		self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+	def visible_to_hidden(self, v):
+		r"""Conditional sampling a hidden variable given a visible variable.
+		Args:
+			v (Tensor): The visible variable.
+		Returns:
+			Tensor: The hidden variable.
+		"""
+		p = torch.sigmoid(F.linear(v, self.W, self.h))
+		return p.bernoulli()
+
+	def hidden_to_visible(self, h):
+		r"""Conditional sampling a visible variable given a hidden variable.
+		Args:
+			h (Tendor): The hidden variable.
+		Returns:
+			Tensor: The visible variable.
+		"""
+		p = torch.sigmoid(F.linear(h, self.W.t(), self.v))
+		return p.bernoulli()
+
+	def free_energy(self, v):
+		r"""Free energy function.
+		.. math::
+			\begin{align}
+				F(x) &= -\log \sum_h \exp (-E(x, h)) \\
+				&= -a^\top x - \sum_j \log (1 + \exp(W^{\top}_jx + b_j))\,.
+			\end{align}
+		Args:
+			v (Tensor): The visible variable.
+		Returns:
+			FloatTensor: The free energy value.
+		"""
+		v_term = torch.matmul(v, self.v.t())
+		w_x_h = F.linear(v, self.W, self.h)
+		h_term = torch.sum(F.softplus(w_x_h), dim=1)
+		return torch.mean(-h_term - v_term)
+
+	def forward(self, v):
+		r"""Compute the real and generated examples.
+		Args:
+			v (Tensor): The visible variable.
+		Returns:
+			(Tensor, Tensor): The real and generated variables.
+		"""
+		h = self.visible_to_hidden(v)
+		for _ in range(self.k):
+			v_gibb = self.hidden_to_visible(h)
+			h = self.visible_to_hidden(v_gibb)
+		return v, v_gibb
+
+	def normalise(self, x):
+		(x[:, 0].sub_(self.state_low[0])).div_(self.state_high[0] - self.state_low[0]).cuda()
+		(x[:, 1].sub_(self.state_low[1])).div_(self.state_high[1] - self.state_low[1]).cuda()
+		(x[:, 2].sub_(self.state_low[2])).div_(self.state_high[2] - self.state_low[2]).cuda()
+		(x[:, 3].sub_(self.action_low)).div_(self.action_high - self.action_low).cuda()
+		(x[:, 4].sub_(self.state_low[0])).div_(self.state_high[0] - self.state_low[0]).cuda()
+		(x[:, 5].sub_(self.state_low[1])).div_(self.state_high[1] - self.state_low[1]).cuda()
+		(x[:, 6].sub_(self.state_low[2])).div_(self.state_high[2] - self.state_low[2]).cuda()
+		(x[:, 7].sub_(self.reward_low)).div_(self.reward_high - self.reward_low).cuda()
+		return x
+
+	def descale(self, x):
+		(x[:, 0].mul_(self.state_high[0] - self.state_low[0])).add_(self.state_low[0]).cuda()
+		(x[:, 1].mul_(self.state_high[1] - self.state_low[1])).add_(self.state_low[1]).cuda()
+		(x[:, 2].mul_(self.state_high[2] - self.state_low[2])).add_(self.state_low[2]).cuda()
+		(x[:, 3].mul_(self.action_high - self.action_low)).add_(self.action_low).cuda()
+		(x[:, 4].mul_(self.state_high[0] - self.state_low[0])).add_(self.state_low[0]).cuda()
+		(x[:, 5].mul_(self.state_high[1] - self.state_low[1])).add_(self.state_low[1]).cuda()
+		(x[:, 6].mul_(self.state_high[2] - self.state_low[2])).add_(self.state_low[2]).cuda()
+		(x[:, 7].mul_(self.reward_high - self.reward_low)).add_(self.reward_low).cuda()
+
+		return x
+
+	def sample(self, batch_size):
+
+		sample = torch.randn(batch_size, self.n_hid)
+		#recon_x = np.arctanh(self.decoder(sample).detach().numpy())
+		#result = self.descale(torch.FloatTensor(recon_x))
+		result = self.descale(self.hidden_to_visible(sample).detach())
+		## descale
+
+		return (
+			torch.FloatTensor(result[:, 0:3]).to(self.device),
+			torch.FloatTensor(result[:, 3]).unsqueeze(1).to(self.device),
+			torch.FloatTensor(result[:, 4:7]).to(self.device),
+			torch.FloatTensor(result[:, -2]).unsqueeze(1).to(self.device),
+			torch.FloatTensor(result[:, -1]).unsqueeze(1).to(self.device)
+		)

@@ -7,6 +7,7 @@ import os
 import sys
 import datetime
 import dateutil.tz
+import pandas as pd
 
 import utils
 import TD3
@@ -18,8 +19,12 @@ from pygit2 import Repository
 # Runs policy for X episodes and returns average reward
 # A fixed seed is used for the eval environment
 
+rbm_loss = []
+avg_r = []
+reward_list = []
 
-def eval_policy(policy, env_name, seed, eval_episodes=10):
+
+def eval_policy(policy, env_name, seed, t, eval_episodes=10):
 	eval_env = gym.make(env_name)
 	eval_env.seed(seed + 100)
 
@@ -32,7 +37,7 @@ def eval_policy(policy, env_name, seed, eval_episodes=10):
 			avg_reward += reward
 
 	avg_reward /= eval_episodes
-
+	avg_r.append([t+1, avg_reward])
 	print("---------------------------------------", flush=True)
 	print(f"Evaluation over {eval_episodes} episodes: {avg_reward:.3f}", flush=True)
 	print("---------------------------------------", flush=True)
@@ -52,9 +57,9 @@ if __name__ == "__main__":
 	
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--policy", default="TD3")                  # Policy name (TD3, DDPG or OurDDPG)
-	parser.add_argument("--env", default="HalfCheetah-v2")          # OpenAI gym environment name
+	parser.add_argument("--env", default="Pendulum-v0")          # OpenAI gym environment name
 	parser.add_argument("--seed", default=0, type=int)              # Sets Gym, PyTorch and Numpy seeds
-	parser.add_argument("--start_timesteps", default=1e5, type=int) # Time steps initial random policy is used
+	parser.add_argument("--start_timesteps", default=1e4, type=int) # Time steps initial random policy is used
 	parser.add_argument("--eval_freq", default=5e3, type=int)       # How often (time steps) we evaluate
 	parser.add_argument("--gr_save_freq", default=100, type=int)
 	parser.add_argument("--max_timesteps", default=2e6, type=int)   # Max time steps to run environment
@@ -67,7 +72,7 @@ if __name__ == "__main__":
 	parser.add_argument("--policy_freq", default=2, type=int)       # Frequency of delayed policy updates
 	parser.add_argument("--save_model", action="store_true")        # Save model and optimizer parameters
 	parser.add_argument("--load_model", default="")                 # Model load file name, "" doesn't load, "default" uses file_name
-	parser.add_argument("--vae_batch_size", type=int, default=100)
+	parser.add_argument("--vae_batch_size", type=int, default=500)
 	args = parser.parse_args()
 	log_dir = "./logs/" + Repository('.').head.shorthand
 
@@ -132,10 +137,10 @@ if __name__ == "__main__":
 		policy.load(f"./models/{policy_file}")
 
 	#replay_buffer = utils.ReplayBuffer(state_dim, action_dim)  ## INITIALIZE
-	generative_replay = utils.GenerativeReplay(action_dim, state_dim, action_low, action_high, state_low, state_high)
+	generative_replay = utils.RBM_GR(action_dim, state_dim, action_low, action_high, state_low, state_high)
 	
 	# Evaluate untrained policy
-	evaluations = [eval_policy(policy, args.env, args.seed)]  # Used for evaluating abg reward after a certain time step
+	evaluations = [eval_policy(policy, args.env, args.seed, 0)]  # Used for evaluating abg reward after a certain time step
 
 	state, done = env.reset(), False
 	gr_train_count = 0
@@ -144,79 +149,93 @@ if __name__ == "__main__":
 	episode_num = 0
 	train_batch = torch.zeros([args.vae_batch_size, 9], dtype=torch.float)
 	gr_index = 0
-	gr_optimizer = torch.optim.Adam(generative_replay.parameters(), lr=1e-3)
+	train_op = torch.optim.Adam(generative_replay.parameters(), 0.01)
 	global_count = 0
-	for t in range(int(args.max_timesteps)):
-		
-		episode_timesteps += 1
+	try:
+		for t in range(int(args.max_timesteps)):
 
-		# Select action randomly or according to policy
-		if t < args.start_timesteps:
-			action = env.action_space.sample()
-		else:
-			action = (
-				policy.select_action(np.array(state))
-				+ np.random.normal(0, max_action * args.expl_noise, size=action_dim)
-			).clip(-max_action, max_action)
+			episode_timesteps += 1
 
-		# Perform action
-		next_state, reward, done, _ = env.step(action) 
-		done_bool = float(done) if episode_timesteps < env._max_episode_steps else 0
-		#replay_buffer.add(state, action, next_state, reward, done_bool)
+			# Select action randomly or according to policy
+			if t < args.start_timesteps:
+				action = env.action_space.sample()
+			else:
+				action = (
+					policy.select_action(np.array(state))
+					+ np.random.normal(0, max_action * args.expl_noise, size=action_dim)
+				).clip(-max_action, max_action)
 
-		vae_batch_size = args.vae_batch_size
-		if gr_index >= vae_batch_size:
-			gr_index = 0
-			if t >= args.start_timesteps:
-				vae_batch_size = int(args.vae_batch_size/2)
-				temp = torch.cat(generative_replay.sample(int(args.vae_batch_size/2)), 1).to(torch.device('cpu'))
+			# Perform action
+			next_state, reward, done, _ = env.step(action)
+			done_bool = float(done) if episode_timesteps < env._max_episode_steps else 0
+			#replay_buffer.add(state, action, next_state, reward, done_bool)
 
-				train_batch = torch.cat((train_batch, temp), 0)
-
-			train_batch = generative_replay.normalise(train_batch)
-
-			# Shuffle
-
-			perm = torch.randperm(train_batch.size()[0])
-			train_batch = train_batch[perm]
-
-			recon_exp, mu, logvar = generative_replay(train_batch.float())
-			loss = loss_fn(recon_exp, train_batch.float(), mu, logvar)
-			gr_optimizer.zero_grad()
-			loss.backward()
-			gr_optimizer.step()
+			vae_batch_size = args.vae_batch_size
 			global_count = global_count + 1
-			print("Epoch[{}] Loss: {:.3f}".format(global_count, loss.item() / train_batch.size()[0]), flush=True)
+			if gr_index >= vae_batch_size:
+				gr_index = 0
+				if t >= args.start_timesteps:
+					vae_batch_size = int(args.vae_batch_size/2)
 
-			if global_count % args.gr_save_freq == 0:
-				torch.save(generative_replay.state_dict(), f"./models/GR/{Repository('.').head.shorthand}_{args.env}.pth")
-				torch.save(gr_optimizer.state_dict(), f"./models/GR/{Repository('.').head.shorthand}_{args.env}_optimizer.pth")
-			train_batch = torch.zeros([args.vae_batch_size, 9], dtype=torch.float)
-		train_batch[gr_index] = torch.FloatTensor(np.concatenate((state, action, next_state, np.array([reward]), np.array([done_bool])), 0))
-		gr_index = gr_index + 1
+					temp = torch.cat(generative_replay.sample(int(args.vae_batch_size/2)), 1).to(torch.device('cpu'))
 
-		## LOSS FUNCTION AND GRAD??
+					train_batch = torch.cat((train_batch, temp), 0)
 
-		state = next_state
-		episode_reward += reward
+				train_batch = generative_replay.normalise(train_batch)
 
-		# Train agent after collecting sufficient data
-		if t >= args.start_timesteps:
-			policy.train(generative_replay, args.batch_size)
+				# Shuffle
 
-		if done: 
-			# +1 to account for 0 indexing. +0 on ep_timesteps since it will increment +1 even if done=True
-			print(f"Total T: {t+1} Episode Num: {episode_num+1} Episode T: {episode_timesteps} Reward: {episode_reward:.3f}", flush=True)
-			# Reset environment
-			state, done = env.reset(), False
-			episode_reward = 0
-			episode_timesteps = 0
-			episode_num += 1 
+				for i in range(10):
+					loss_ = []
+					perm = torch.randperm(train_batch.size()[0])
+					train_batch = train_batch[perm]
 
-		# Evaluate episode
-		if (t + 1) % args.eval_freq == 0:
-			evaluations.append(eval_policy(policy, args.env, args.seed))
-			np.save(f"./results/{file_name}", evaluations)
-			if args.save_model: policy.save(f"./models/policy/{file_name}")
+					v, v_g = generative_replay(train_batch[:128].float())
+					loss = generative_replay.free_energy(v) - generative_replay.free_energy(v_g)
+					loss_.append(loss.item())
+					train_op.zero_grad()
+					loss.backward()
+					train_op.step()
 
-	#sys.stdout.close()
+				rbm_loss.append([t+1, np.mean(loss_)])
+				print("Epoch[{}] Loss: {:.3f}".format(global_count, np.mean(loss_)), flush=True)
+
+				if global_count % args.gr_save_freq == 0:
+					torch.save(generative_replay.state_dict(), f"./models/GR/{Repository('.').head.shorthand}_{args.env}_RBM.pth")
+					torch.save(train_op.state_dict(), f"./models/GR/{Repository('.').head.shorthand}_{args.env}_RBM_optimizer.pth")
+				train_batch = torch.zeros([args.vae_batch_size, 9], dtype=torch.float)
+			train_batch[gr_index] = torch.FloatTensor(np.concatenate((state, action, next_state, np.array([reward]), np.array([done_bool])), 0))
+			gr_index = gr_index + 1
+
+			## LOSS FUNCTION AND GRAD??
+
+			state = next_state
+			episode_reward += reward
+
+			# Train agent after collecting sufficient data
+			if t >= args.start_timesteps:
+				policy.train(generative_replay, args.batch_size)
+
+			if done:
+				# +1 to account for 0 indexing. +0 on ep_timesteps since it will increment +1 even if done=True
+				reward_list.append([t+1, episode_reward])
+				print(f"Total T: {t+1} Episode Num: {episode_num+1} Episode T: {episode_timesteps} Reward: {episode_reward:.3f}", flush=True)
+				# Reset environment
+				state, done = env.reset(), False
+				episode_reward = 0
+				episode_timesteps = 0
+				episode_num += 1
+
+			# Evaluate episode
+			if (t + 1) % args.eval_freq == 0:
+				evaluations.append(eval_policy(policy, args.env, args.seed, t=t))
+				np.save(f"./results/{file_name}", evaluations)
+				if args.save_model: policy.save(f"./models/policy/{file_name}")
+
+	except KeyboardInterrupt:
+		print('Stopping..')
+	finally:
+		pd.DataFrame(avg_r).to_csv("avg_reward_rbm_online.csv")
+		pd.DataFrame(reward_list).to_csv("rewards_rbm_online.csv")
+		pd.DataFrame(rbm_loss).to_csv("rbm_loss_online.csv")
+
